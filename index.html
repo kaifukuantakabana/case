@@ -111,6 +111,20 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Hiragino San
 /* modal */
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
 .modal{background:#fff;border-radius:12px;width:100%;max-width:560px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+
+/* カスタムドロップダウン（iOS selectスクロール誤選択対策） */
+.cdd{position:relative;width:100%}
+.cdd-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--brd);border-radius:var(--r);padding:7px 10px;font-size:12px;color:var(--tx);background:#fff;cursor:pointer;user-select:none;min-height:34px;transition:border-color .1s}
+.cdd-trigger:hover,.cdd-trigger.open{border-color:var(--ac);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.cdd-trigger-txt{flex:1;color:var(--mu)}
+.cdd-trigger-txt.selected{color:var(--tx)}
+.cdd-trigger-arrow{font-size:10px;color:var(--mu);transition:transform .15s;flex-shrink:0}
+.cdd-trigger.open .cdd-trigger-arrow{transform:rotate(180deg)}
+.cdd-panel{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--ac);border-radius:var(--r);box-shadow:0 8px 24px rgba(0,0,0,.14);z-index:9999;max-height:220px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.cdd-item{padding:12px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--brd);line-height:1.5;color:var(--tx);touch-action:manipulation;-webkit-tap-highlight-color:rgba(37,99,235,0.15)}
+.cdd-item:last-child{border-bottom:none}
+.cdd-item:hover,.cdd-item.hover{background:var(--ac2);color:var(--ac)}
+.cdd-item.placeholder{color:var(--mu);font-size:12px}
 .modal.wide{max-width:680px}
 .mh{padding:14px 18px;border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .mh h2{font-size:14px;font-weight:700}
@@ -421,7 +435,16 @@ textarea{resize:vertical;min-height:60px}
       <div class="fs">
         <div class="fst">レッドコード</div>
         <div class="fr fr2">
-          <div class="fg"><div class="fl">実施者</div><select id="r-staff"><option value="">選択なし</option></select></div>
+          <div class="fg"><div class="fl">実施者</div>
+            <div class="cdd" id="cdd-staff">
+              <div class="cdd-trigger" onclick="cddToggle('cdd-staff')">
+                <span class="cdd-trigger-txt" id="cdd-staff-txt">選択なし</span>
+                <span class="cdd-trigger-arrow">▼</span>
+              </div>
+              <div class="cdd-panel" id="cdd-staff-panel" style="display:none"></div>
+            </div>
+            <input type="hidden" id="r-staff" value="">
+          </div>
           <div class="fg"><div class="fl">実施時間</div><input type="text" id="r-rctime" value="30分"></div>
         </div>
       </div>
@@ -434,7 +457,13 @@ textarea{resize:vertical;min-height:60px}
         <div class="fst">経過観察・備考</div>
         <div class="fg">
           <div class="fl">経過観察 <em>（定型文選択または直接入力）</em></div>
-          <select id="r-tmpl" onchange="applyTmpl()" style="margin-bottom:5px"><option value="">— 定型文を選択 —</option></select>
+          <div class="cdd" id="cdd-tmpl" style="margin-bottom:6px">
+            <div class="cdd-trigger" onclick="cddToggle('cdd-tmpl')">
+              <span class="cdd-trigger-txt" id="cdd-tmpl-txt">— 定型文を選択 —</span>
+              <span class="cdd-trigger-arrow">▼</span>
+            </div>
+            <div class="cdd-panel" id="cdd-tmpl-panel" style="display:none"></div>
+          </div>
           <textarea id="r-notes" placeholder="利用中の様子・特記事項など"></textarea>
         </div>
         <div class="fg"><div class="fl">備考欄</div><textarea id="r-memo" placeholder="備考・連絡事項など" style="min-height:48px"></textarea></div>
@@ -870,14 +899,115 @@ function vitNext(e, nextId) {
   }
 }
 function fillStaff(val='') {
-  G('r-staff').innerHTML='<option value="">選択なし</option>'+(cfg.staff||[]).map(s=>`<option ${s===val?'selected':''}>${s}</option>`).join('');
+  const items=[{label:'選択なし',value:''},...(cfg.staff||[]).map(s=>({label:s,value:s}))];
+  cddBuild('cdd-staff', items, val, v=>{
+    G('r-staff').value=v;
+  });
+  G('r-staff').value=val;
+  G('cdd-staff-txt').textContent=val||'選択なし';
+  G('cdd-staff-txt').classList.toggle('selected',!!val);
 }
 function fillTmpls() {
-  G('r-tmpl').innerHTML='<option value="">— 定型文を選択 —</option>'+(cfg.noteTemplates||[]).map(t=>`<option value="${t.text}">${t.text.length>28?t.text.slice(0,28)+'…':t.text}</option>`).join('');
+  const items=[{label:'— 定型文を選択 —',value:''},
+    ...(cfg.noteTemplates||[]).map(t=>({label:t.text,value:t.text}))];
+  cddBuild('cdd-tmpl', items, '', v=>{
+    if(!v) return;
+    const ta=G('r-notes'); ta.value=(ta.value?ta.value+'\n':'')+v;
+    // 選択後はプレースホルダーに戻す
+    G('cdd-tmpl-txt').textContent='— 定型文を選択 —';
+    G('cdd-tmpl-txt').classList.remove('selected');
+  });
 }
-function applyTmpl() {
-  const v=G('r-tmpl').value; if(!v) return;
-  const ta=G('r-notes'); ta.value=(ta.value?ta.value+'\n':'')+v; G('r-tmpl').value='';
+function applyTmpl() {} // カスタムドロップダウン移行後は不要（互換のため残す）
+
+// ══════════════════════════════════════════════
+// カスタムドロップダウン（iOS selectスクロール誤選択対策）
+// タップ→選択確定、スクロールは確定しない
+// ══════════════════════════════════════════════
+const _cdd = {}; // { id: { items, onSelect } }
+
+function cddBuild(id, items, currentVal, onSelect) {
+  _cdd[id] = { items, onSelect, currentVal };
+  const panel = G(id+'-panel');
+  if (!panel) return;
+  panel.innerHTML = items.map((item, i) => {
+    const isPlaceholder = i === 0 && !item.value;
+    return `<div class="cdd-item ${isPlaceholder?'placeholder':''} ${item.value===currentVal&&item.value?'hover':''}"
+      data-value="${item.value}"
+      data-idx="${i}"
+      onclick="cddSelect(event,'${id}',${i})"
+    >${item.label}</div>`;
+  }).join('');
+}
+
+function cddToggle(id) {
+  const panel = G(id+'-panel');
+  const trigger = G(id)?.querySelector('.cdd-trigger');
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  // 他のドロップダウンを全て閉じる
+  cddCloseAll();
+  if (!isOpen) {
+    panel.style.display = 'block';
+    trigger?.classList.add('open');
+    // パネル外タップで閉じる
+    setTimeout(() => {
+      document.addEventListener('touchstart', _cddOutsideHandler, { once: true, passive: true });
+      document.addEventListener('mousedown', _cddOutsideHandler, { once: true });
+    }, 50);
+  }
+}
+
+function _cddOutsideHandler(e) {
+  // cddパネル外をタップしたら全閉じ
+  if (!e.target.closest('.cdd')) cddCloseAll();
+}
+
+function cddCloseAll() {
+  document.querySelectorAll('.cdd-panel').forEach(p => p.style.display='none');
+  document.querySelectorAll('.cdd-trigger.open').forEach(t => t.classList.remove('open'));
+}
+
+let _cddTouchStartY = 0;
+let _cddTouchStartX = 0;
+let _cddScrolled = false;
+
+// パネル内のスクロールと選択タップを区別する
+// touchstartで開始座標を記録、touchmoveで動いたらスクロール判定フラグを立てる
+// clickはスクロール後は発火しない（iOS/Android共通）のでclickだけで選択を処理する
+document.addEventListener('touchstart', e => {
+  const panel = e.target.closest('.cdd-panel');
+  if (!panel) return;
+  _cddScrolled = false;
+  _cddTouchStartY = e.touches[0].clientY;
+  _cddTouchStartX = e.touches[0].clientX;
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  const panel = e.target.closest('.cdd-panel');
+  if (!panel) return;
+  const dy = Math.abs(e.touches[0].clientY - _cddTouchStartY);
+  const dx = Math.abs(e.touches[0].clientX - _cddTouchStartX);
+  // 縦に10px以上動いたらスクロール判定（誤選択を防ぐ）
+  if (dy > 10 || (dy > 5 && dy > dx)) _cddScrolled = true;
+}, { passive: true });
+
+function cddSelect(e, id, idx) {
+  // スクロール中は選択しない（iOSスクロール誤選択対策）
+  if (_cddScrolled) { _cddScrolled = false; return; }
+  e.preventDefault(); e.stopPropagation();
+  const data = _cdd[id];
+  if (!data) return;
+  const item = data.items[idx];
+  if (!item) return;
+  // ラベル更新
+  const txt = G(id+'-txt');
+  if (txt) {
+    txt.textContent = item.value ? item.label : data.items[0].label;
+    txt.classList.toggle('selected', !!item.value);
+  }
+  cddCloseAll();
+  data.onSelect(item.value);
 }
 async function saveRecord() {
   const date=G('r-date').value; if(!date){toast('利用日を選択してください');return;}
