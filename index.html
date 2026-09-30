@@ -537,6 +537,7 @@ loadLocal();
 
 let curUser=null, curYear=new Date().getFullYear(), curMonth=new Date().getMonth();
 let editRecId=null, editUserId=null, editGrpId=null, recSlot=null;
+let _openGrpId=null; // 利用者選択時に開いていたグループID（renderSB再描画後も維持）
 
 // ══════════════════════════════════════════════
 // GAS API
@@ -645,6 +646,9 @@ function showV(v) {
   if(v==='record' && curUser) refreshRec();
 }
 function selectUser(id) {
+  // 選択時点で開いているグループIDを記憶（renderSB後も維持するため）
+  const openEl=document.querySelector('#sb-body .grp.open');
+  if(openEl) _openGrpId=openEl.dataset.grpId||null;
   curUser=id; curYear=new Date().getFullYear(); curMonth=new Date().getMonth();
   renderSB(); showV('record');
 }
@@ -673,20 +677,39 @@ function renderSB() {
   const body=G('sb-body'); let html='';
   const showRetired=localStorage.getItem('ds3_show_retired')==='1';
   const allUsers=sortByKana(db.users.filter(u=>showRetired || !u.retired));
+  const activeUsers=db.users.filter(u=>!u.retired); // 退会者除く全員（全体集計用）
+
+  // ── 全体の本日記録済みをユニーク集計 ──
+  const totalDone=activeUsers.filter(u=>todayRec(u.id)).length;
+  const totalAll=activeUsers.length;
+  if(totalAll>0) {
+    const pct=Math.round(totalDone/totalAll*100);
+    html+=`<div style="margin:6px 4px 8px;padding:7px 10px;border-radius:8px;background:${totalDone===totalAll?'var(--gn2)':'var(--sur2)'};border:1px solid ${totalDone===totalAll?'var(--gn3)':'var(--brd)'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:11px;font-weight:600;color:${totalDone===totalAll?'var(--gn)':'var(--tx)'}">本日記録済み</span>
+        <span style="font-size:12px;font-weight:700;color:${totalDone===totalAll?'var(--gn)':'var(--ac)'}">${totalDone} <span style="font-size:10px;font-weight:400;color:var(--mu)">/ ${totalAll}人</span></span>
+      </div>
+      <div style="height:4px;background:var(--brd);border-radius:2px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${totalDone===totalAll?'var(--gn)':'var(--ac)'};border-radius:2px;transition:width .3s"></div>
+      </div>
+    </div>`;
+  }
+
   const inGrp=new Set();
   if(db.groups.length) {
     html+='<div class="sb-lbl">グループ</div>';
     db.groups.forEach(g=>{
       const members=sortByKana((g.members||[]).map(uid=>allUsers.find(u=>u.id===uid)).filter(Boolean));
       (g.members||[]).forEach(uid=>inGrp.add(uid));
-      const doneN=members.filter(u=>!u.retired&&todayRec(u.id)).length;
-      const badge=doneN?`<span style="font-size:9px;background:var(--gn);color:#fff;border-radius:100px;padding:1px 5px">${doneN}</span>`:'';
-      // 現在選択中の利用者がいるグループだけ初期表示で開く
-      const hasActive=members.some(u=>u.id===curUser);
-      html+=`<div class="grp ${hasActive?'open':''}" data-grp-id="${g.id}">
+      // バッジ：グループ内に1人でも記録済みがいれば●のみ（人数は全体バーで管理）
+      const hasDone=members.some(u=>!u.retired&&todayRec(u.id));
+      const badge=hasDone?`<span style="width:8px;height:8px;border-radius:50%;background:var(--gn);display:inline-block;margin-left:4px;flex-shrink:0"></span>`:'';
+      // グループの開閉判定：_openGrpIdが設定されていればそれを優先、なければ選択中ユーザーのグループ
+      const isOpen=_openGrpId ? g.id===_openGrpId : members.some(u=>u.id===curUser);
+      html+=`<div class="grp ${isOpen?'open':''}" data-grp-id="${g.id}">
         <div class="grp-hd" onclick="toggleGrpAccordion(this)">
           <div class="grp-dot" style="background:${g.color}"></div>
-          <div class="grp-nm">${g.name}${badge}</div>
+          <div class="grp-nm" style="display:flex;align-items:center;gap:4px">${g.name}${badge}</div>
           <span class="grp-arrow">▶</span>
         </div>
         <div class="grp-bd">
@@ -713,10 +736,13 @@ function renderSB() {
 function toggleGrpAccordion(hdEl) {
   const clicked=hdEl.closest('.grp');
   const isOpen=clicked.classList.contains('open');
-  // 全グループを閉じる
   document.querySelectorAll('#sb-body .grp').forEach(g=>g.classList.remove('open'));
-  // 閉じていたものをクリックした場合だけ開く（開いていたものは閉じたまま）
-  if(!isOpen) clicked.classList.add('open');
+  if(!isOpen) {
+    clicked.classList.add('open');
+    _openGrpId=clicked.dataset.grpId||null; // 手動で開いたグループを記憶
+  } else {
+    _openGrpId=null; // 閉じた場合はリセット
+  }
 }
 
 // ══════════════════════════════════════════════
